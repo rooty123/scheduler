@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: scheduler
+  name: scheduler-deployment
   namespace: default
 spec:
   replicas: 1
