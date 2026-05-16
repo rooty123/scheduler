@@ -2,21 +2,36 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
+	"github.com/sirupsen/logrus"
 )
 
 var (
 	redisClient *redis.Client
+	log         *logrus.Entry
 )
 
+func initLogger() {
+	l := logrus.New()
+	l.SetFormatter(&logrus.JSONFormatter{})
+	if lvl, err := logrus.ParseLevel(os.Getenv("LOG_LEVEL")); err == nil {
+		l.SetLevel(lvl)
+	}
+	name := os.Getenv("SERVICE_NAME")
+	if name == "" {
+		name = "scheduler"
+	}
+	log = l.WithField("service_name", name)
+}
+
 func init() {
+	initLogger()
+
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {
 		redisAddr = "localhost:6379"
@@ -24,54 +39,37 @@ func init() {
 
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       0,
 	})
 }
 
 func sendMessageToSubscribers() {
 	ctx := context.Background()
+	payload := "Daily scheduled message"
 
-	// Example payload - you can modify this as needed
-	payload := map[string]interface{}{
-		"type": "send_message",
-		"data": map[string]interface{}{
-			"message": "Daily scheduled message",
-			"time":    time.Now().Format(time.RFC3339),
-		},
-	}
-
-	// Publish to Redis channel
-	err := redisClient.Publish(ctx, "scheduler_events", payload).Err()
-	if err != nil {
-		log.Printf("Error publishing message: %v", err)
+	if err := redisClient.Publish(ctx, "send_message", payload).Err(); err != nil {
+		log.WithError(err).Error("Error publishing message")
 		return
 	}
-
-	log.Printf("Successfully sent scheduled message to subscribers")
+	log.WithField("channel", "send_message").Info("Scheduled message published")
 }
 
 func main() {
-	// Create a new cron scheduler
 	c := cron.New()
-
-	// Add a job that runs at 10:00 every day
-	_, err := c.AddFunc("0 10 * * *", sendMessageToSubscribers)
-	if err != nil {
-		log.Fatalf("Error scheduling job: %v", err)
+	if _, err := c.AddFunc("0 10 * * *", sendMessageToSubscribers); err != nil {
+		log.WithError(err).Fatal("Error scheduling job")
 	}
 
-	// Start the scheduler
 	c.Start()
-	log.Println("Scheduler started")
+	log.Info("Scheduler started")
 
-	// Wait for interrupt signal to gracefully shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	// Stop the scheduler
 	ctx := c.Stop()
 	<-ctx.Done()
-	log.Println("Scheduler stopped")
+	log.Info("Gracefully shutting down")
+	os.Exit(0)
 }
