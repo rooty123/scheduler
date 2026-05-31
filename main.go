@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
@@ -55,10 +57,23 @@ func sendMessageToSubscribers() {
 	log.WithField("channel", "send_message").Info("Scheduled message published")
 }
 
+func fireWeeklyReco() {
+	ctx := context.Background()
+	payload := fmt.Sprintf(`{"fire_at":%q}`, time.Now().UTC().Format(time.RFC3339))
+	if err := redisClient.Publish(ctx, "weekly_reco", payload).Err(); err != nil {
+		log.WithError(err).Error("Error publishing weekly_reco")
+		return
+	}
+	log.WithField("channel", "weekly_reco").Info("Weekly reco trigger published")
+}
+
 func main() {
 	c := cron.New()
 	if _, err := c.AddFunc("0 10 * * *", sendMessageToSubscribers); err != nil {
-		log.WithError(err).Fatal("Error scheduling job")
+		log.WithError(err).Fatal("Error scheduling daily job")
+	}
+	if _, err := c.AddFunc("0 9 * * MON", fireWeeklyReco); err != nil {
+		log.WithError(err).Fatal("Error scheduling weekly reco job")
 	}
 
 	c.Start()
