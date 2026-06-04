@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: scheduler
-        image: microsm/micro-scheduler:latest
+        image: microsm/micro-scheduler:__IMAGE_TAG__
         imagePullPolicy: IfNotPresent
         env:
         - name: REDIS_ADDR
